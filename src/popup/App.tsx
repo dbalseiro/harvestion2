@@ -8,6 +8,12 @@ import type {
 } from '@/lib/harvest'
 
 const notionTags = ['notion', 'priority-p2', 'customer-facing']
+const LAST_SELECTION_STORAGE_KEY = 'harvestLastSelection'
+
+type LastSelection = {
+  projectId: number
+  taskId: number
+}
 
 function todayIsoDate() {
   return new Date().toISOString().slice(0, 10)
@@ -31,6 +37,8 @@ export default function App() {
   const [activeProjectIndex, setActiveProjectIndex] = useState(0)
   const [activeTaskIndex, setActiveTaskIndex] = useState(0)
   const [configured, setConfigured] = useState<boolean | null>(null)
+  const [isNotionPage, setIsNotionPage] = useState(false)
+  const [lastSelection, setLastSelection] = useState<LastSelection | null>(null)
   const [projects, setProjects] = useState<HarvestProject[]>([])
   const [tasks, setTasks] = useState<HarvestTask[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
@@ -74,7 +82,7 @@ export default function App() {
     return tasks.filter((task) => task.name.toLowerCase().includes(query))
   }, [taskQuery, tasks])
 
-  const loadProjects = async () => {
+  const loadProjects = async (preferredSelection?: LastSelection | null) => {
     setIsLoadingProjects(true)
     setMessage('')
 
@@ -94,10 +102,25 @@ export default function App() {
       setIsProjectMenuOpen(false)
       setIsTaskMenuOpen(false)
 
-      const nextProject = sortedProjects[0] ?? null
-      setSelectedProjectId(nextProject?.id ?? null)
-      setTasks([])
-      setSelectedTaskId(null)
+      const preferredProject =
+        preferredSelection !== null && preferredSelection !== undefined
+          ? sortedProjects.find((project) => project.id === preferredSelection.projectId) ?? null
+          : null
+      const nextProject = preferredProject ?? sortedProjects[0] ?? null
+      const nextProjectId = nextProject?.id ?? null
+      const preferredTaskId =
+        preferredSelection !== null && preferredSelection !== undefined && preferredSelection.projectId === nextProjectId
+          ? preferredSelection.taskId
+          : undefined
+
+      setSelectedProjectId(nextProjectId)
+
+      if (nextProjectId === null) {
+        setTasks([])
+        setSelectedTaskId(null)
+      } else if (nextProjectId === selectedProjectId) {
+        await loadTasks(nextProjectId, preferredTaskId)
+      }
 
       if (sortedProjects.length === 0) {
         setMessageVariant('info')
@@ -112,7 +135,7 @@ export default function App() {
     }
   }
 
-  const loadTasks = async (projectId: number) => {
+  const loadTasks = async (projectId: number, preferredTaskId?: number) => {
     setIsLoadingTasks(true)
     setMessage('')
 
@@ -130,7 +153,9 @@ export default function App() {
       setTasks(sortedTasks)
       setTaskQuery('')
       setIsTaskMenuOpen(false)
-      setSelectedTaskId(sortedTasks[0]?.id ?? null)
+      const preferredTask =
+        preferredTaskId !== undefined ? sortedTasks.find((task) => task.id === preferredTaskId) ?? null : null
+      setSelectedTaskId((preferredTask ?? sortedTasks[0] ?? null)?.id ?? null)
 
       if (sortedTasks.length === 0) {
         setMessageVariant('info')
@@ -148,6 +173,18 @@ export default function App() {
   useEffect(() => {
     const boot = async () => {
       try {
+        let storedSelection: LastSelection | null = null
+        try {
+          const stored = await chrome.storage.local.get(LAST_SELECTION_STORAGE_KEY)
+          const parsed = stored[LAST_SELECTION_STORAGE_KEY] as LastSelection | undefined
+          if (parsed && typeof parsed.projectId === 'number' && typeof parsed.taskId === 'number') {
+            storedSelection = parsed
+            setLastSelection(parsed)
+          }
+        } catch (error) {
+          console.error('[Harvestion][popup] Failed to load last selection:', error)
+        }
+
         const statusResponse = (await chrome.runtime.sendMessage({
           type: 'harvest:getSettingsStatus',
         })) as MessageResponse<HarvestSettingsStatus>
@@ -167,7 +204,7 @@ export default function App() {
             console.error('[Harvestion][popup] Failed to fetch current user:', error)
           }
 
-          await loadProjects()
+          await loadProjects(storedSelection)
         } else {
           console.warn('[Harvestion][popup] Harvest is not configured')
         }
@@ -187,8 +224,27 @@ export default function App() {
       return
     }
 
-    void loadTasks(selectedProjectId)
-  }, [selectedProjectId])
+    const preferredTaskId = lastSelection?.projectId === selectedProjectId ? lastSelection.taskId : undefined
+    void loadTasks(selectedProjectId, preferredTaskId)
+  }, [selectedProjectId, lastSelection])
+
+  useEffect(() => {
+    const detectNotionPage = async () => {
+      try {
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
+        const activeUrl = tabs[0]?.url ?? ''
+        const isNotion =
+          /^https:\/\/([a-z0-9-]+\.)?notion\.so\//i.test(activeUrl) ||
+          /^https:\/\/app\.notion\.com\//i.test(activeUrl)
+        setIsNotionPage(isNotion)
+      } catch (error) {
+        console.error('[Harvestion][popup] Failed to detect active tab url:', error)
+        setIsNotionPage(false)
+      }
+    }
+
+    void detectNotionPage()
+  }, [])
 
   const openSettings = async () => {
     try {
@@ -240,6 +296,17 @@ export default function App() {
       const created = parseResponse(createResponse)
       setMessageVariant('success')
       setMessage(isTimer ? `Timer started in Harvest (ID ${created.id}).` : `Time entry created in Harvest (ID ${created.id}).`)
+
+      const selectionToPersist: LastSelection = {
+        projectId: selectedProjectId,
+        taskId: selectedTaskId,
+      }
+      setLastSelection(selectionToPersist)
+      try {
+        await chrome.storage.local.set({ [LAST_SELECTION_STORAGE_KEY]: selectionToPersist })
+      } catch (error) {
+        console.error('[Harvestion][popup] Failed to persist last selection:', error)
+      }
     } catch (error) {
       console.error('[Harvestion][popup] Failed to create time entry:', error)
       setMessageVariant('error')
@@ -315,22 +382,24 @@ export default function App() {
             </div>
           )}
 
-          <article className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-500">Current Notion Ticket</p>
-            <h2 className="mt-2 text-base font-semibold leading-tight text-stone-900">
-              Improve onboarding toast behavior for enterprise workspace switching
-            </h2>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {notionTags.map((tag) => (
-                <span
-                  key={tag}
-                  className="rounded-full border border-stone-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-stone-700"
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-          </article>
+          {isNotionPage && (
+            <article className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-500">Current Notion Ticket</p>
+              <h2 className="mt-2 text-base font-semibold leading-tight text-stone-900">
+                Improve onboarding toast behavior for enterprise workspace switching
+              </h2>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {notionTags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded-full border border-stone-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-stone-700"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </article>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div className="relative space-y-1.5">

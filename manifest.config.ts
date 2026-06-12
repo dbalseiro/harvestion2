@@ -5,7 +5,7 @@ export default defineManifest({
   manifest_version: 3,
   name: pkg.name,
   version: pkg.version,
-  permissions: ['storage'],
+  permissions: ['storage', 'tabs'],
   host_permissions: ['https://api.harvestapp.com/*'],
   icons: {
     48: 'public/icon48.png',
