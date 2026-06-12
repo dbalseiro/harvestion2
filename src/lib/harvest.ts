@@ -30,7 +30,7 @@ export type MessageRequest =
         taskId: number
         spentDate: string
         notes: string
-        hours: number
+        hours?: number
       }
     }
 

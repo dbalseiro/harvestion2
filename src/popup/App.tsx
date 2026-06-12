@@ -21,7 +21,7 @@ function parseResponse<T>(response: MessageResponse<T>) {
 }
 
 export default function App() {
-  const [hours, setHours] = useState('1.5')
+  const [hours, setHours] = useState('')
   const [notes, setNotes] = useState('')
   const [configured, setConfigured] = useState<boolean | null>(null)
   const [projects, setProjects] = useState<HarvestProject[]>([])
@@ -142,19 +142,21 @@ export default function App() {
   }
 
   const handleCreateEntry = async () => {
-    const parsedHours = Number.parseFloat(hours)
-
     if (selectedProjectId === null || selectedTaskId === null) {
       setMessageVariant('error')
       setMessage('Select both a project and task before creating a time entry.')
       return
     }
 
-    if (Number.isNaN(parsedHours) || parsedHours <= 0) {
+    const parsedHours = hours.trim() === '' ? undefined : Number.parseFloat(hours)
+
+    if (parsedHours !== undefined && (Number.isNaN(parsedHours) || parsedHours <= 0)) {
       setMessageVariant('error')
       setMessage('Hours must be a positive number.')
       return
     }
+
+    const isTimer = parsedHours === undefined
 
     setIsCreatingEntry(true)
     setMessage('')
@@ -167,13 +169,13 @@ export default function App() {
           taskId: selectedTaskId,
           spentDate: todayIsoDate(),
           notes: notes.trim(),
-          hours: parsedHours,
+          ...(parsedHours !== undefined ? { hours: parsedHours } : {}),
         },
       })) as MessageResponse<{ id: number }>
 
       const created = parseResponse(createResponse)
       setMessageVariant('success')
-      setMessage(`Time entry created in Harvest (ID ${created.id}).`)
+      setMessage(isTimer ? `Timer started in Harvest (ID ${created.id}).` : `Time entry created in Harvest (ID ${created.id}).`)
     } catch (error) {
       setMessageVariant('error')
       setMessage(error instanceof Error ? error.message : 'Failed to create Harvest time entry.')
@@ -314,7 +316,7 @@ export default function App() {
               }}
               className="flex-1 rounded-xl border border-orange-500 bg-orange-500 px-3 py-2.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {isCreatingEntry ? 'Creating...' : 'Create Entry'}
+              {isCreatingEntry ? 'Creating...' : hours.trim() === '' ? 'Start Timer' : 'Create Entry'}
             </button>
           </div>
 

@@ -145,18 +145,21 @@ async function createTimeEntry(
     taskId: number
     spentDate: string
     notes: string
-    hours: number
+    hours?: number
   },
 ) {
+  const body: Record<string, unknown> = {
+    project_id: payload.projectId,
+    task_id: payload.taskId,
+    spent_date: payload.spentDate,
+    notes: payload.notes,
+  }
+  if (payload.hours !== undefined) {
+    body.hours = payload.hours
+  }
   return harvestRequest<{ id: number }>(settings, '/time_entries', {
     method: 'POST',
-    body: JSON.stringify({
-      project_id: payload.projectId,
-      task_id: payload.taskId,
-      spent_date: payload.spentDate,
-      notes: payload.notes,
-      hours: payload.hours,
-    }),
+    body: JSON.stringify(body),
   })
 }
 
