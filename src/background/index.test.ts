@@ -131,6 +131,14 @@ describe('Background Worker - Message Handling', () => {
       expect(message.type).toBe('harvest:getProjects')
     })
 
+    it('should accept harvest:getCurrentUser message', () => {
+      const message: MessageRequest = {
+        type: 'harvest:getCurrentUser',
+      }
+
+      expect(message.type).toBe('harvest:getCurrentUser')
+    })
+
     it('should accept harvest:getProjectTasks message with projectId', () => {
       const message: MessageRequest = {
         type: 'harvest:getProjectTasks',

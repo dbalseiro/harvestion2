@@ -1,7 +1,17 @@
 import { describe, it, expect } from 'vitest'
-import type { HarvestSettings, HarvestProject, HarvestTask, MessageResponse } from '@/lib/harvest'
+import type { HarvestCurrentUser, HarvestSettings, HarvestProject, HarvestTask, MessageResponse } from '@/lib/harvest'
 
 describe('Harvest Data Models', () => {
+  describe('HarvestCurrentUser', () => {
+    it('should create valid current user object', () => {
+      const user: HarvestCurrentUser = {
+        id: 12345,
+      }
+
+      expect(user.id).toBe(12345)
+    })
+  })
+
   describe('HarvestSettings', () => {
     it('should create valid settings object', () => {
       const settings: HarvestSettings = {

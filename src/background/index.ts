@@ -23,6 +23,23 @@ type HarvestProjectResponse = HarvestPaginated<{
   }>
 }>
 
+type HarvestUserResponse = {
+  id: number
+}
+
+type HarvestProjectAssignmentsResponse = HarvestPaginated<{
+  project_assignments: Array<{
+    project?: {
+      id: number
+    }
+    project_id?: number
+  }>
+}>
+
+async function fetchCurrentUser(settings: HarvestSettings): Promise<HarvestUserResponse> {
+  return harvestRequest<HarvestUserResponse>(settings, '/users/me')
+}
+
 type HarvestTaskAssignmentsResponse = HarvestPaginated<{
   task_assignments: Array<{
     task: {
@@ -40,6 +57,7 @@ function sendSuccess<T>(sendResponse: (response: MessageResponse<T>) => void, da
 
 function sendError(sendResponse: (response: MessageResponse) => void, error: unknown) {
   const message = error instanceof Error ? error.message : 'Unknown error'
+  console.error('[Harvestion][background] Message handler error:', error)
   sendResponse({ ok: false, error: message })
 }
 
@@ -87,7 +105,29 @@ async function fetchAllProjects(settings: HarvestSettings): Promise<HarvestProje
   let page = 1
   let totalPages = 1
   const projects: HarvestProject[] = []
+  const assignedProjectIds = new Set<number>()
 
+  const me = await fetchCurrentUser(settings)
+
+  while (page <= totalPages) {
+    const assignments = await harvestRequest<HarvestProjectAssignmentsResponse>(
+      settings,
+      `/users/${me.id}/project_assignments?is_active=true&per_page=200&page=${page}`,
+    )
+
+    totalPages = assignments.total_pages
+    page += 1
+
+    for (const assignment of assignments.project_assignments) {
+      const projectId = assignment.project?.id ?? assignment.project_id
+      if (typeof projectId === 'number') {
+        assignedProjectIds.add(projectId)
+      }
+    }
+  }
+
+  page = 1
+  totalPages = 1
   while (page <= totalPages) {
     const data = await harvestRequest<HarvestProjectResponse>(
       settings,
@@ -107,7 +147,7 @@ async function fetchAllProjects(settings: HarvestSettings): Promise<HarvestProje
     )
   }
 
-  return projects
+  return projects.filter((project) => assignedProjectIds.has(project.id))
 }
 
 async function fetchProjectTasks(settings: HarvestSettings, projectId: number): Promise<HarvestTask[]> {
@@ -183,6 +223,13 @@ chrome.runtime.onMessage.addListener((request: MessageRequest, _sender, sendResp
         return
       }
 
+      if (request.type === 'harvest:getCurrentUser') {
+        const user = await fetchCurrentUser(settings)
+        console.log('[Harvestion][background] Current user fetched:', user)
+        sendSuccess(sendResponse, { id: user.id })
+        return
+      }
+
       if (request.type === 'harvest:getProjectTasks') {
         const tasks = await fetchProjectTasks(settings, request.projectId)
         sendSuccess(sendResponse, tasks)
@@ -191,6 +238,7 @@ chrome.runtime.onMessage.addListener((request: MessageRequest, _sender, sendResp
 
       if (request.type === 'harvest:createTimeEntry') {
         const created = await createTimeEntry(settings, request.payload)
+        console.log('[Harvestion][background] Time entry created:', created)
         sendSuccess(sendResponse, created)
       }
     } catch (error) {

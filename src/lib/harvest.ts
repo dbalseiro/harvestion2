@@ -21,6 +21,7 @@ export type HarvestTask = {
 
 export type MessageRequest =
   | { type: 'harvest:getSettingsStatus' }
+  | { type: 'harvest:getCurrentUser' }
   | { type: 'harvest:getProjects' }
   | { type: 'harvest:getProjectTasks'; projectId: number }
   | {
@@ -46,4 +47,8 @@ export type MessageResponse<T = unknown> =
 
 export type HarvestSettingsStatus = {
   configured: boolean
+}
+
+export type HarvestCurrentUser = {
+  id: number
 }
