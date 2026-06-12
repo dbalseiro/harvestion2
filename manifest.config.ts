@@ -5,6 +5,8 @@ export default defineManifest({
   manifest_version: 3,
   name: pkg.name,
   version: pkg.version,
+  permissions: ['storage'],
+  host_permissions: ['https://api.harvestapp.com/*'],
   icons: {
     48: 'public/icon48.png',
     16: 'public/icon16.png',
@@ -18,15 +20,12 @@ export default defineManifest({
     },
     default_popup: 'src/popup/index.html',
   },
-  // permissions: [
-  //   'sidePanel',
-  //   'contentSettings',
-  // ],
-  // content_scripts: [{
-  //   // js: ['src/content/main.tsx'],
-  //   matches: ['https://*/*'],
-  // }]
-  // side_panel: {
-  //   default_path: 'src/sidepanel/index.html',
-  // },
+  background: {
+    service_worker: 'src/background/index.ts',
+    type: 'module',
+  },
+  options_ui: {
+    page: 'src/options/index.html',
+    open_in_tab: true,
+  },
 })
