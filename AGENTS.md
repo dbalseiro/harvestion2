@@ -7,88 +7,172 @@ This Chrome extension enables users to quickly add Harvest time entries directly
 **Core Workflow:**
 - User visits a Notion ticket or database entry in their browser.
 - The extension parses relevant data from the Notion page (e.g., ticket title, tags, description).
-- Through a UI (e.g., popup or injected button), the user can trigger the creation of a Harvest time entry pre-filled with Notion data.
-- The extension communicates with both Notion (for extracting task data) and Harvest (for submitting time entries), handling authentication and data mapping.
+- Through a popup UI, the user can select a project and task, enter hours and notes, and trigger the creation of a Harvest time entry with all details pre-filled from Notion.
+- The extension communicates with Harvest API to fetch real projects and tasks, and submits time entries securely.
+- Credentials are stored securely in the extension's local storage via the background service worker.
 
 ---
 
 ## Agents and Roles
 
-### 1. Background Agent
+### 1. Background Service Worker
 
-**Script:** `background.js`  
+**Script:** `src/background/index.ts` (TypeScript, transpiled to service-worker-loader.js)
 **Role:** Serves as the extension's central coordinator. Handles messaging between scripts, manages extension state, and performs privileged background logic such as interacting with the Harvest API.
 
 **Key Responsibilities:**
-- Receives and processes requests to create Harvest time entries.
-- Manages Harvest API tokens and authentication flow (if required).
-- Performs privileged network requests to the Harvest API (due to CORS/content security policies).
-- Mediates messaging between popup/options pages, content scripts, and manages extension storage (Notion/Harvest credentials, preferences, etc).
-- Handles notifications or error reporting for critical operations.
+- **Harvest API Integration:** Fetches active projects, project task assignments, and creates time entries via Harvest API v2.
+- **Credential Storage:** Reads and writes Harvest Account ID and Personal Access Token to `chrome.storage.local`.
+- **Message Routing:** Listens for messages from popup and options pages:
+  - `harvest:getSettingsStatus` — checks if credentials are configured
+  - `harvest:getProjects` — fetches active projects from Harvest
+  - `harvest:getProjectTasks` — fetches task assignments for a given project
+  - `harvest:createTimeEntry` — creates a new time entry in Harvest
+- **Error Handling:** Returns structured success/error responses for all API calls.
 
 **Communication:**
-- Listens for messages from content and popup agents (e.g., "create harvest entry").
-- Initiates API calls and communicates success/failure results back to requesters.
-- May initiate communication to content scripts for page context or updates.
+- Receives chrome.runtime.sendMessage calls from popup and options pages.
+- Returns discriminated union responses (`{ ok: true; data: T }` or `{ ok: false; error: string }`).
+- Handles pagination and data transformation from Harvest API.
 
-### 2. Content Script Agent
+**Implementation Details:**
+- Uses `fetch` with Bearer token authentication and Account ID headers.
+- Paginates through project and task lists automatically.
+- De-duplicates tasks by ID when fetching task assignments.
 
-**Script:** `content.js`  
-**Role:** Runs within Notion pages. Extracts data from Notion tickets/database elements, injects UI (such as a button or control), and facilitates user interaction directly on Notion.
+### 2. Popup UI Agent
+
+**Script:** `src/popup/App.tsx` (React component)
+**HTML Entry:** `src/popup/index.html`
+**Role:** Provides the browser toolbar popup UI for creating time entries. Fetches live project/task data from the background worker and displays a polished form.
 
 **Key Responsibilities:**
-- Detects eligible Notion tickets or database elements on the current page.
-- Parses and extracts relevant task data (title, description, tags, etc.).
-- Injects UI components (e.g., "Add to Harvest" button) into the Notion page.
-- Responds to user interactions to prepare and send data to the background agent.
-- Handles edge cases where page structure may vary.
+- **Settings Integration:** Detects if Harvest is configured; displays an alert if not. "Settings" button opens the options page.
+- **Live Data Loading:** On mount, fetches projects and displays them in a dropdown. When project changes, fetches and displays tasks.
+- **Form Management:** Manages hours (with real-time h:mm formatting), notes, project, and task selection.
+- **Time Entry Creation:** Submits time entries with today's date, selected project/task, hours, and notes.
+- **User Feedback:** Displays status messages (loading, success, error) with color-coded UI.
+- **Notion Context:** Displays sample Notion ticket details (title, tags) — ready for dynamic extraction from content script.
+
+**State:**
+- `configured`: whether Harvest settings exist
+- `projects`: array of active Harvest projects
+- `tasks`: array of task assignments for the selected project
+- `selectedProjectId`, `selectedTaskId`: currently selected project and task IDs
+- `hours`, `notes`: form inputs
+- `message`, `messageVariant`: user-facing feedback
+- Loading states for async operations
 
 **Communication:**
-- Sends extracted task data and interaction events to the background agent (e.g., "user requested Harvest entry for this ticket").
-- Receives requests or commands from the background agent (e.g., to update UI or report operation status).
+- Sends `chrome.runtime.sendMessage` to background for all Harvest operations.
+- Calls `chrome.runtime.openOptionsPage()` to open settings.
 
-### 3. Popup/Options UI Agent
+### 3. Options/Settings UI Agent
 
-**Script:** `popup.js` / `options.js`  
-**Role:** Provides user interface via the browser toolbar popup, allowing users to trigger actions, view status/feedback, and manage extension settings such as API integrations.
+**Script:** `src/options/App.tsx` (React component)
+**HTML Entry:** `src/options/index.html`
+**Role:** Provides the extension settings page for credential management and connection testing.
 
 **Key Responsibilities:**
-- Displays UI for initiating Harvest entry creation from page-context data (when available).
-- Collects/validates user credentials or API tokens for Notion and Harvest.
-- Offers settings page for mapping Notion fields to Harvest projects/tasks, or customizing extension behavior.
-- Displays feedback (e.g., success/failure notifications) on entry creation.
+- **Credential Input:** Collects Harvest Account ID and Personal Access Token.
+- **Credential Storage:** Saves credentials to extension storage on form submit.
+- **Connection Testing:** Sends a test request to Harvest API to verify credentials before saving.
+- **Load Existing Credentials:** On mount, loads previously saved credentials from storage.
+- **User Feedback:** Displays save/test status and error or success messages.
+
+**State:**
+- `accountId`, `accessToken`: form inputs
+- `saveState`, `testState`: loading/success/error states for save and test actions
+- `feedback`: user-facing message
 
 **Communication:**
-- Communicates with background agent using the messaging API to query page context, trigger actions, or access state.
-- May receive messages from background agent to display operation status or error feedback.
+- Reads from and writes to `chrome.storage.local` directly (runs in options page context).
+- Sends test request via `chrome.runtime.sendMessage` to the background service worker.
 
-### 4. External Service Agents (Future/Optional)
+### 4. Content Script Agent
 
-**Role:** If needed, abstraction modules or agents may be introduced to handle integration with Notion and Harvest APIs in a maintainable way. These may operate as helper libraries or dedicated background scripts responsible for:
-- Providing a robust, reusable interface for Notion and Harvest API calls.
-- Handling authentication flows (OAuth2 etc.) and token refresh logic.
-- Mapping or synchronizing data between systems.
+**Status:** Not yet implemented.
+**Future Role:** Runs within Notion pages to detect and extract ticket metadata (title, description, tags), inject UI controls, and pass data to the popup.
+
+---
+
+## Data Models & Message Contracts
+
+**File:** `src/lib/harvest.ts`
+
+### Storage
+```typescript
+type HarvestSettings = {
+  accountId: string
+  accessToken: string
+}
+```
+Stored in `chrome.storage.local['harvestSettings']`.
+
+### API Data
+```typescript
+type HarvestProject = {
+  id: number
+  name: string
+  code: string | null
+  isActive: boolean
+}
+
+type HarvestTask = {
+  id: number
+  name: string
+  billableByDefault: boolean
+  isActive: boolean
+}
+```
+
+### Message Protocol
+```typescript
+type MessageRequest =
+  | { type: 'harvest:getSettingsStatus' }
+  | { type: 'harvest:getProjects' }
+  | { type: 'harvest:getProjectTasks'; projectId: number }
+  | {
+      type: 'harvest:createTimeEntry'
+      payload: {
+        projectId: number
+        taskId: number
+        spentDate: string
+        notes: string
+        hours: number
+      }
+    }
+
+type MessageResponse<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: string }
+```
 
 ---
 
 ## Inter-Agent Communication
 
-Agents communicate using the Chrome Extensions Messaging API, enabling asynchronous and robust coordination:
+Agents communicate using the Chrome Extensions Messaging API:
 
-- **chrome.runtime.sendMessage / onMessage:** For simple, stateless communication between agents.
-- **chrome.tabs.sendMessage:** Enables background agent to interact directly with content scripts in open Notion tabs.
-- **Long-lived connections (chrome.runtime.connect):** Supports streaming or persistent message channels for continual operations (e.g., OAuth flows).
+- **chrome.runtime.sendMessage():** Popup and options pages send requests to the background service worker.
+- **chrome.runtime.onMessage.addListener():** Background service worker listens for incoming messages and responds asynchronously.
+- **Return value:** Always return `true` from the listener to indicate async response handling.
 
 ---
 
 ## Extensibility
 
-New agents/modules (e.g., service connectors, worker scripts) should be documented here as they are added. Each agent should have a clear responsibility, consistent communication interface, and well-isolated logic.
+Future enhancements:
+1. **Content Script:** Extract Notion ticket metadata and pass to popup via message.
+2. **Field Mapping:** Settings UI to map Notion tags/properties to default Harvest projects/tasks.
+3. **OAuth Flow:** Replace personal token with OAuth if Harvest adds support.
+4. **Timer Integration:** Start/stop timer on popup, sync with Harvest via background worker.
 
 ---
 
 ## Version History
 
+- **v0.3:** Implemented Harvest API integration in background worker, React popup with live project/task loading, options page for credential management.
 - **v0.2:** Added Notion/Harvest workflow context and clarified agent responsibilities.
 - **v0.1:** Initial agent documentation scaffold.
 
