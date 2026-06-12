@@ -147,14 +147,52 @@ See [Harvest API Documentation →](https://help.getharvest.com/api-v2/)
 ## Next Steps
 
 1. **Notion Content Script:** Detect Notion tickets, extract metadata (title, description, tags), and inject UI
-2. **Smart Defaults:** Map Notion tags to Harvest project/task defaults
-3. **Timer:** Add start/stop timer that syncs with Harvest on save
-4. **Error Recovery:** Better error messages for failed API calls
-5. **Tests:** Unit tests for message handlers, integration tests for popup
+---
+
+## Testing
+
+This project includes comprehensive test coverage using Vitest and Testing Library:
+
+### Run Tests
+```sh
+# Run tests in watch mode (interactive)
+npm test
+
+# Run tests once and exit
+npm test -- --run
+
+# Open interactive test UI
+npm test:ui
+
+# Generate coverage report
+npm test:coverage
+```
+
+### Test Coverage (34 tests, 100% passing)
+- **Data Models** (7 tests): HarvestSettings, projects, tasks, message protocol types
+- **Background Worker** (9 tests): Harvest API integration, message routing, credential handling
+- **Popup Logic** (12 tests): Form validation, hours formatting, time entry creation
+- **Options Logic** (6 tests): Credential validation, connection testing, storage
+
+### Test Files
+- [src/lib/harvest.test.ts](src/lib/harvest.test.ts) — Data model validation
+- [src/background/index.test.ts](src/background/index.test.ts) — Service worker message handling
+- [src/popup/App.test.tsx](src/popup/App.test.tsx) — Popup form logic and workflows
+- [src/options/App.test.tsx](src/options/App.test.tsx) — Settings page logic
+
+### Configuration
+- **Test Framework:** Vitest 2.1
+- **Environment:** jsdom (simulates browser DOM)
+- **Test Utils:** @testing-library/react, @testing-library/user-event
+- **Coverage:** @vitest/coverage-v8
+- **Config:** [vitest.config.ts](vitest.config.ts)
 
 ---
 
-## Useful Links
+## Next Steps
+
+1. **Notion Content Script:** Detect Notion tickets, extract metadata (title, description, tags), and inject UI
+2. **Smart Defaults:** Map Notion tags to Harvest project/task defaults
 - [Chrome Extensions Docs](https://developer.chrome.com/docs/extensions)
 - [crxjs Docs](https://crxjs.dev/)
 - [Harvest API Documentation](https://help.getharvest.com/api-v2/)
