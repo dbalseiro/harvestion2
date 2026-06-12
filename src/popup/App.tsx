@@ -7,7 +7,12 @@ import type {
   MessageResponse,
 } from '@/lib/harvest'
 
-const notionTags = ['notion', 'priority-p2', 'customer-facing']
+type TicketDetectionResult = {
+  isTicket: boolean
+  id: string | null
+  title: string | null
+  pills: string[]
+}
 const LAST_SELECTION_STORAGE_KEY = 'harvestLastSelection'
 
 type LastSelection = {
@@ -37,7 +42,10 @@ export default function App() {
   const [activeProjectIndex, setActiveProjectIndex] = useState(0)
   const [activeTaskIndex, setActiveTaskIndex] = useState(0)
   const [configured, setConfigured] = useState<boolean | null>(null)
-  const [isNotionPage, setIsNotionPage] = useState(false)
+  const [isTicketPage, setIsTicketPage] = useState(false)
+  const [ticketId, setTicketId] = useState<string>('')
+  const [ticketTitle, setTicketTitle] = useState<string>('')
+  const [ticketPills, setTicketPills] = useState<string[]>([])
   const [lastSelection, setLastSelection] = useState<LastSelection | null>(null)
   const [projects, setProjects] = useState<HarvestProject[]>([])
   const [tasks, setTasks] = useState<HarvestTask[]>([])
@@ -229,21 +237,161 @@ export default function App() {
   }, [selectedProjectId, lastSelection])
 
   useEffect(() => {
-    const detectNotionPage = async () => {
+    const detectNotionTicket = async () => {
       try {
         const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
-        const activeUrl = tabs[0]?.url ?? ''
+        const activeTab = tabs[0]
+        const activeUrl = activeTab?.url ?? ''
+        const tabId = activeTab?.id
         const isNotion =
           /^https:\/\/([a-z0-9-]+\.)?notion\.so\//i.test(activeUrl) ||
           /^https:\/\/app\.notion\.com\//i.test(activeUrl)
-        setIsNotionPage(isNotion)
+
+        if (!isNotion || tabId === undefined) {
+          setIsTicketPage(false)
+          setTicketId('')
+          setTicketTitle('')
+          setTicketPills([])
+          return
+        }
+
+        const [execution] = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => {
+            const root = document.querySelector('main#main') ?? document.body
+            const normalize = (value: string) => value.replace(/\s+/g, ' ').trim()
+
+            const rows = Array.from(root.querySelectorAll('[role="row"]'))
+            const labels = new Set<string>()
+            const propertyValuesByLabel = new Map<string, string>()
+            const propertyPairs: Array<{ label: string; value: string }> = []
+
+            for (const row of rows) {
+              const labelNode = row.querySelector('[role="cell"][id]')
+              const valueNode =
+                row.querySelector('[data-testid="property-value"]') ??
+                (row.querySelectorAll('[role="cell"]')[1] as HTMLElement | undefined)
+
+              const label = normalize(labelNode?.textContent ?? '')
+              const value = normalize(valueNode?.textContent ?? '')
+
+              if (label !== '') {
+                labels.add(label)
+              }
+              if (label !== '' && value !== '') {
+                propertyValuesByLabel.set(label.toLowerCase(), value)
+                propertyPairs.push({ label, value })
+              }
+            }
+
+            const hasComments = Array.from(root.querySelectorAll('div')).some(
+              (node) => normalize(node.textContent ?? '') === 'Comments',
+            )
+
+            const knownLabels = ['Status', 'Priority', 'Assignees', 'Requestor', 'ID', 'Product', 'Blocked?', 'Date']
+            const labelMatches = knownLabels.filter((label) => labels.has(label)).length
+
+            let score = 0
+            if (labels.has('Status')) score += 2
+            if (labels.has('ID')) score += 2
+            if (labels.has('Priority')) score += 1
+            if (labels.has('Assignees')) score += 1
+            if (labels.has('Requestor')) score += 1
+            if (hasComments) score += 1
+
+            const hasTicketFields = labelMatches >= 3
+            const mediumSignal = hasComments && rows.length >= 2
+            const scoreSignal = score >= 5
+            const isTicket = hasTicketFields || mediumSignal || scoreSignal
+
+            const titleCandidates: string[] = []
+
+            const h1 = normalize(root.querySelector('h1')?.textContent ?? '')
+            if (h1 !== '') {
+              titleCandidates.push(h1)
+            }
+
+            const titleProperty =
+              propertyValuesByLabel.get('title') ?? propertyValuesByLabel.get('name') ?? propertyValuesByLabel.get('ticket')
+            if (titleProperty) {
+              titleCandidates.push(titleProperty)
+            }
+
+            const externalBlock = root.querySelector('.notion-external_object_instance-block')
+            if (externalBlock) {
+              const externalTexts = Array.from(externalBlock.querySelectorAll('[spellcheck="false"], div'))
+                .map((node) => normalize(node.textContent ?? ''))
+                .filter((text) => text.length >= 12)
+                .filter((text) => text !== 'Open')
+              if (externalTexts[0]) {
+                titleCandidates.push(externalTexts[0])
+              }
+            }
+
+            if (titleCandidates.length === 0) {
+              const textBlocks = Array.from(root.querySelectorAll('[role="textbox"], .notion-text-block, div'))
+                .map((node) => normalize(node.textContent ?? ''))
+                .filter((text) => text.length >= 12)
+                .filter((text) => text !== 'Comments' && text !== 'Empty')
+              if (textBlocks[0]) {
+                titleCandidates.push(textBlocks[0])
+              }
+            }
+
+            const unique = Array.from(new Set(titleCandidates))
+            const title = unique[0] ?? null
+            const idValue =
+              propertyValuesByLabel.get('id') ??
+              propertyValuesByLabel.get('ticket id') ??
+              propertyValuesByLabel.get('ticket') ??
+              null
+            const pillDenylist = new Set(['date', 'last edited time', 'id'])
+            const emptyValueTokens = new Set(['', 'empty', '-', '--', 'n/a', 'none'])
+            const pills = Array.from(
+              new Set(
+                propertyPairs
+                  .filter(({ label, value }) => {
+                    const normalizedValue = normalize(value).toLowerCase()
+                    return !pillDenylist.has(label.toLowerCase()) && !emptyValueTokens.has(normalizedValue)
+                  })
+                  .map(({ label, value }) => `${label}: ${value}`),
+              ),
+            )
+
+            return {
+              isTicket,
+              id: idValue,
+              title,
+              pills,
+            }
+          },
+        })
+
+        const result = execution?.result as TicketDetectionResult | undefined
+        const detectedTicket = result?.isTicket === true
+        const extractedId = result?.id?.trim() ?? ''
+        const extractedTitle = result?.title?.trim() ?? ''
+        const extractedPills = result?.pills ?? []
+
+        setIsTicketPage(detectedTicket)
+        setTicketId(detectedTicket ? extractedId : '')
+        setTicketTitle(detectedTicket ? extractedTitle : '')
+        setTicketPills(detectedTicket ? extractedPills : [])
+
+        if (detectedTicket && extractedTitle !== '') {
+          const formattedNotes = extractedId !== '' ? `[${extractedId}] ${extractedTitle}` : extractedTitle
+          setNotes(formattedNotes)
+        }
       } catch (error) {
         console.error('[Harvestion][popup] Failed to detect active tab url:', error)
-        setIsNotionPage(false)
+        setIsTicketPage(false)
+        setTicketId('')
+        setTicketTitle('')
+        setTicketPills([])
       }
     }
 
-    void detectNotionPage()
+    void detectNotionTicket()
   }, [])
 
   const openSettings = async () => {
@@ -296,6 +444,8 @@ export default function App() {
       const created = parseResponse(createResponse)
       setMessageVariant('success')
       setMessage(isTimer ? `Timer started in Harvest (ID ${created.id}).` : `Time entry created in Harvest (ID ${created.id}).`)
+      setHours('')
+      setNotes('')
 
       const selectionToPersist: LastSelection = {
         projectId: selectedProjectId,
@@ -382,14 +532,14 @@ export default function App() {
             </div>
           )}
 
-          {isNotionPage && (
+          {isTicketPage && (
             <article className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-500">Current Notion Ticket</p>
               <h2 className="mt-2 text-base font-semibold leading-tight text-stone-900">
-                Improve onboarding toast behavior for enterprise workspace switching
+                {ticketId !== '' && ticketTitle !== '' ? `[${ticketId}] ${ticketTitle}` : ticketTitle || 'Ticket detected'}
               </h2>
               <div className="mt-3 flex flex-wrap gap-2">
-                {notionTags.map((tag) => (
+                {ticketPills.map((tag) => (
                   <span
                     key={tag}
                     className="rounded-full border border-stone-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-stone-700"
