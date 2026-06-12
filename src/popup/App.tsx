@@ -206,6 +206,12 @@ export default function App() {
       return
     }
 
+    if (notes.trim() === '') {
+      setMessageVariant('error')
+      setMessage('Notes are required before creating a time entry or starting a timer.')
+      return
+    }
+
     const parsedHours = hours.trim() === '' ? undefined : Number.parseFloat(hours)
 
     if (parsedHours !== undefined && (Number.isNaN(parsedHours) || parsedHours <= 0)) {
