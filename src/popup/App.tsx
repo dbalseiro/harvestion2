@@ -22,7 +22,7 @@ function parseResponse<T>(response: MessageResponse<T>) {
 
 export default function App() {
   const [hours, setHours] = useState('1.5')
-  const [notes, setNotes] = useState('QA follow-up for ticket comments and release checklist updates.')
+  const [notes, setNotes] = useState('')
   const [configured, setConfigured] = useState<boolean | null>(null)
   const [projects, setProjects] = useState<HarvestProject[]>([])
   const [tasks, setTasks] = useState<HarvestTask[]>([])
@@ -199,9 +199,13 @@ export default function App() {
               onClick={() => {
                 void openSettings()
               }}
-              className="rounded-full border border-stone-400/40 bg-white/80 px-3 py-1 text-xs font-semibold text-stone-700 transition hover:bg-white"
+              aria-label="Settings"
+              className="rounded-full border border-stone-400/40 bg-white/80 p-2 text-stone-600 transition hover:bg-white hover:text-stone-900"
             >
-              Settings
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
             </button>
           </div>
           <p className="mt-3 text-sm text-stone-700">
@@ -302,16 +306,6 @@ export default function App() {
           </label>
 
           <div className="flex gap-2.5">
-            <button
-              type="button"
-              disabled={configured !== true || isLoadingProjects || isLoadingTasks}
-              onClick={() => {
-                void loadProjects()
-              }}
-              className="flex-1 rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-sm font-semibold text-stone-700 transition hover:-translate-y-0.5 hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              Refresh
-            </button>
             <button
               type="button"
               disabled={configured !== true || isCreatingEntry}
