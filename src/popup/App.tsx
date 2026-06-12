@@ -25,8 +25,6 @@ export default function App() {
   const [hours, setHours] = useState('')
   const [notes, setNotes] = useState('')
   const [configured, setConfigured] = useState<boolean | null>(null)
-  const [currentUserId, setCurrentUserId] = useState<number | null>(null)
-  const [currentUserError, setCurrentUserError] = useState<string | null>(null)
   const [projects, setProjects] = useState<HarvestProject[]>([])
   const [tasks, setTasks] = useState<HarvestTask[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
@@ -131,26 +129,18 @@ export default function App() {
             })) as MessageResponse<HarvestCurrentUser>
 
             const user = parseResponse(userResponse)
-            setCurrentUserId(user.id)
-            setCurrentUserError(null)
             console.info('[Harvestion][popup] Current user id loaded:', user.id)
           } catch (error) {
             console.error('[Harvestion][popup] Failed to fetch current user:', error)
-            setCurrentUserId(null)
-            setCurrentUserError(error instanceof Error ? error.message : 'Failed to fetch users/me')
           }
 
           await loadProjects()
         } else {
-          setCurrentUserId(null)
-          setCurrentUserError(null)
           console.warn('[Harvestion][popup] Harvest is not configured')
         }
       } catch (error) {
         console.error('[Harvestion][popup] Boot failed:', error)
         setConfigured(false)
-        setCurrentUserId(null)
-        setCurrentUserError(error instanceof Error ? error.message : 'Failed to check Harvest settings.')
         setMessageVariant('error')
         setMessage(error instanceof Error ? error.message : 'Failed to check Harvest settings.')
       }
@@ -222,8 +212,6 @@ export default function App() {
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null
-  const unavailableUserReason =
-    currentUserError ?? (configured === false ? 'not configured' : configured === null ? 'checking settings' : 'unknown')
 
   return (
     <main className="popup-shell min-h-screen min-w-[360px] px-4 py-5 text-stone-900">
@@ -233,10 +221,6 @@ export default function App() {
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-700">Harvestion</p>
               <h1 className="mt-1 text-[26px] font-bold leading-none tracking-tight">Notion to Harvest</h1>
-              <p className="mt-1 text-[11px] font-medium text-stone-600">
-                Debug User ID: {currentUserId ?? 'not available'}
-                {currentUserId === null ? ` (${unavailableUserReason})` : ''}
-              </p>
             </div>
             <div className="flex items-center gap-2">
               <button
