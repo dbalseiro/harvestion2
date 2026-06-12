@@ -24,6 +24,12 @@ function parseResponse<T>(response: MessageResponse<T>) {
 export default function App() {
   const [hours, setHours] = useState('')
   const [notes, setNotes] = useState('')
+  const [projectQuery, setProjectQuery] = useState('')
+  const [taskQuery, setTaskQuery] = useState('')
+  const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false)
+  const [isTaskMenuOpen, setIsTaskMenuOpen] = useState(false)
+  const [activeProjectIndex, setActiveProjectIndex] = useState(0)
+  const [activeTaskIndex, setActiveTaskIndex] = useState(0)
   const [configured, setConfigured] = useState<boolean | null>(null)
   const [projects, setProjects] = useState<HarvestProject[]>([])
   const [tasks, setTasks] = useState<HarvestTask[]>([])
@@ -47,6 +53,27 @@ export default function App() {
     return `${displayHours}h ${displayMinutes.toString().padStart(2, '0')}m`
   }, [hours])
 
+  const filteredProjects = useMemo(() => {
+    const query = projectQuery.trim().toLowerCase()
+    if (query === '') {
+      return projects
+    }
+
+    return projects.filter((project) => {
+      const code = project.code?.toLowerCase() ?? ''
+      return project.name.toLowerCase().includes(query) || code.includes(query)
+    })
+  }, [projectQuery, projects])
+
+  const filteredTasks = useMemo(() => {
+    const query = taskQuery.trim().toLowerCase()
+    if (query === '') {
+      return tasks
+    }
+
+    return tasks.filter((task) => task.name.toLowerCase().includes(query))
+  }, [taskQuery, tasks])
+
   const loadProjects = async () => {
     setIsLoadingProjects(true)
     setMessage('')
@@ -62,6 +89,10 @@ export default function App() {
       )
       console.log('[Harvestion][popup] Projects loaded:', sortedProjects)
       setProjects(sortedProjects)
+      setProjectQuery('')
+      setTaskQuery('')
+      setIsProjectMenuOpen(false)
+      setIsTaskMenuOpen(false)
 
       const nextProject = sortedProjects[0] ?? null
       setSelectedProjectId(nextProject?.id ?? null)
@@ -97,6 +128,8 @@ export default function App() {
       )
       console.log('[Harvestion][popup] Tasks loaded:', sortedTasks)
       setTasks(sortedTasks)
+      setTaskQuery('')
+      setIsTaskMenuOpen(false)
       setSelectedTaskId(sortedTasks[0]?.id ?? null)
 
       if (sortedTasks.length === 0) {
@@ -213,9 +246,19 @@ export default function App() {
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null
 
+  const chooseProjectOption = (project: HarvestProject) => {
+    setSelectedProjectId(project.id)
+    setIsProjectMenuOpen(false)
+  }
+
+  const chooseTaskOption = (task: HarvestTask) => {
+    setSelectedTaskId(task.id)
+    setIsTaskMenuOpen(false)
+  }
+
   return (
     <main className="popup-shell min-h-screen min-w-[360px] px-4 py-5 text-stone-900">
-      <section className="mx-auto w-full max-w-md overflow-hidden rounded-3xl border border-black/10 bg-white/85 shadow-[0_16px_40px_-22px_rgba(42,33,12,0.55)] backdrop-blur-sm">
+      <section className="mx-auto w-full max-w-md overflow-visible rounded-3xl border border-black/10 bg-white/85 shadow-[0_16px_40px_-22px_rgba(42,33,12,0.55)] backdrop-blur-sm">
         <header className="border-b border-black/10 bg-gradient-to-r from-amber-200/70 via-orange-100 to-emerald-100 px-5 pb-4 pt-5">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -284,45 +327,197 @@ export default function App() {
           </article>
 
           <div className="grid grid-cols-2 gap-3">
-            <label className="space-y-1.5">
+            <div className="relative space-y-1.5">
               <span className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-500">Project</span>
-              <select
-                className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-sm font-medium text-stone-800 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-200 disabled:cursor-not-allowed disabled:opacity-70"
+              <button
+                type="button"
                 disabled={configured !== true || isLoadingProjects || projects.length === 0}
-                value={selectedProjectId ?? ''}
-                onChange={(event) => setSelectedProjectId(Number(event.target.value))}
+                onClick={() => {
+                  setIsProjectMenuOpen((open) => {
+                    const nextOpen = !open
+                    if (nextOpen) {
+                      const selectedIndex = filteredProjects.findIndex((project) => project.id === selectedProjectId)
+                      setActiveProjectIndex(selectedIndex >= 0 ? selectedIndex : 0)
+                    }
+                    return nextOpen
+                  })
+                  setIsTaskMenuOpen(false)
+                }}
+                className="flex w-full items-center justify-between rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-left text-sm font-medium text-stone-800 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-200 disabled:cursor-not-allowed disabled:opacity-70"
               >
-                {projects.length === 0 ? (
-                  <option value="">{isLoadingProjects ? 'Loading projects...' : 'No projects available'}</option>
-                ) : (
-                  projects.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.code ? `${project.code} - ${project.name}` : project.name}
-                    </option>
-                  ))
-                )}
-              </select>
-            </label>
+                <span className="truncate">
+                  {isLoadingProjects
+                    ? 'Loading projects...'
+                    : selectedProject
+                      ? selectedProject.code
+                        ? `${selectedProject.code} - ${selectedProject.name}`
+                        : selectedProject.name
+                      : 'Select project'}
+                </span>
+                <span className="text-stone-500">▾</span>
+              </button>
+              {isProjectMenuOpen && (
+                <div className="absolute z-30 mt-1 w-full rounded-xl border border-stone-300 bg-white p-2 shadow-lg">
+                  <input
+                    autoFocus
+                    className="mb-2 w-full rounded-lg border border-stone-300 bg-white px-2.5 py-2 text-xs font-medium text-stone-800 outline-none placeholder:text-stone-400 focus:border-orange-400 focus:ring-2 focus:ring-orange-200"
+                    value={projectQuery}
+                    onChange={(event) => {
+                      setProjectQuery(event.target.value)
+                      setActiveProjectIndex(0)
+                    }}
+                    onKeyDown={(event) => {
+                      if (filteredProjects.length === 0) {
+                        if (event.key === 'Escape') {
+                          setIsProjectMenuOpen(false)
+                        }
+                        return
+                      }
 
-            <label className="space-y-1.5">
+                      if (event.key === 'ArrowDown') {
+                        event.preventDefault()
+                        setActiveProjectIndex((index) => Math.min(index + 1, filteredProjects.length - 1))
+                        return
+                      }
+
+                      if (event.key === 'ArrowUp') {
+                        event.preventDefault()
+                        setActiveProjectIndex((index) => Math.max(index - 1, 0))
+                        return
+                      }
+
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        const option = filteredProjects[activeProjectIndex] ?? filteredProjects[0]
+                        if (option) {
+                          chooseProjectOption(option)
+                        }
+                        return
+                      }
+
+                      if (event.key === 'Escape') {
+                        setIsProjectMenuOpen(false)
+                      }
+                    }}
+                    placeholder="Filter projects"
+                  />
+                  <div className="max-h-40 overflow-y-auto">
+                    {filteredProjects.length === 0 ? (
+                      <p className="px-2 py-2 text-xs text-stone-500">No projects match search</p>
+                    ) : (
+                      filteredProjects.map((project, index) => (
+                        <button
+                          key={project.id}
+                          type="button"
+                          onClick={() => {
+                            chooseProjectOption(project)
+                          }}
+                          onMouseEnter={() => setActiveProjectIndex(index)}
+                          className={`block w-full rounded-lg px-2 py-2 text-left text-xs font-medium text-stone-700 hover:bg-stone-100 ${
+                            index === activeProjectIndex ? 'bg-orange-50' : ''
+                          }`}
+                        >
+                          {project.code ? `${project.code} - ${project.name}` : project.name}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="relative space-y-1.5">
               <span className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-500">Task</span>
-              <select
-                className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-sm font-medium text-stone-800 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-200 disabled:cursor-not-allowed disabled:opacity-70"
+              <button
+                type="button"
                 disabled={configured !== true || isLoadingTasks || tasks.length === 0}
-                value={selectedTaskId ?? ''}
-                onChange={(event) => setSelectedTaskId(Number(event.target.value))}
+                onClick={() => {
+                  setIsTaskMenuOpen((open) => {
+                    const nextOpen = !open
+                    if (nextOpen) {
+                      const selectedIndex = filteredTasks.findIndex((task) => task.id === selectedTaskId)
+                      setActiveTaskIndex(selectedIndex >= 0 ? selectedIndex : 0)
+                    }
+                    return nextOpen
+                  })
+                  setIsProjectMenuOpen(false)
+                }}
+                className="flex w-full items-center justify-between rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-left text-sm font-medium text-stone-800 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-200 disabled:cursor-not-allowed disabled:opacity-70"
               >
-                {tasks.length === 0 ? (
-                  <option value="">{isLoadingTasks ? 'Loading tasks...' : 'No tasks available'}</option>
-                ) : (
-                  tasks.map((task) => (
-                    <option key={task.id} value={task.id}>
-                      {task.name}
-                    </option>
-                  ))
-                )}
-              </select>
-            </label>
+                <span className="truncate">
+                  {isLoadingTasks ? 'Loading tasks...' : selectedTask ? selectedTask.name : 'Select task'}
+                </span>
+                <span className="text-stone-500">▾</span>
+              </button>
+              {isTaskMenuOpen && (
+                <div className="absolute z-30 mt-1 w-full rounded-xl border border-stone-300 bg-white p-2 shadow-lg">
+                  <input
+                    autoFocus
+                    className="mb-2 w-full rounded-lg border border-stone-300 bg-white px-2.5 py-2 text-xs font-medium text-stone-800 outline-none placeholder:text-stone-400 focus:border-orange-400 focus:ring-2 focus:ring-orange-200"
+                    value={taskQuery}
+                    onChange={(event) => {
+                      setTaskQuery(event.target.value)
+                      setActiveTaskIndex(0)
+                    }}
+                    onKeyDown={(event) => {
+                      if (filteredTasks.length === 0) {
+                        if (event.key === 'Escape') {
+                          setIsTaskMenuOpen(false)
+                        }
+                        return
+                      }
+
+                      if (event.key === 'ArrowDown') {
+                        event.preventDefault()
+                        setActiveTaskIndex((index) => Math.min(index + 1, filteredTasks.length - 1))
+                        return
+                      }
+
+                      if (event.key === 'ArrowUp') {
+                        event.preventDefault()
+                        setActiveTaskIndex((index) => Math.max(index - 1, 0))
+                        return
+                      }
+
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        const option = filteredTasks[activeTaskIndex] ?? filteredTasks[0]
+                        if (option) {
+                          chooseTaskOption(option)
+                        }
+                        return
+                      }
+
+                      if (event.key === 'Escape') {
+                        setIsTaskMenuOpen(false)
+                      }
+                    }}
+                    placeholder="Filter tasks"
+                  />
+                  <div className="max-h-40 overflow-y-auto">
+                    {filteredTasks.length === 0 ? (
+                      <p className="px-2 py-2 text-xs text-stone-500">No tasks match search</p>
+                    ) : (
+                      filteredTasks.map((task, index) => (
+                        <button
+                          key={task.id}
+                          type="button"
+                          onClick={() => {
+                            chooseTaskOption(task)
+                          }}
+                          onMouseEnter={() => setActiveTaskIndex(index)}
+                          className={`block w-full rounded-lg px-2 py-2 text-left text-xs font-medium text-stone-700 hover:bg-stone-100 ${
+                            index === activeTaskIndex ? 'bg-orange-50' : ''
+                          }`}
+                        >
+                          {task.name}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-[1fr_auto] items-end gap-3">
